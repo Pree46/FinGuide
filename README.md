@@ -1,70 +1,110 @@
-# Getting Started with Create React App
+# FinGuide - AI Financial Advisor
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+An interactive AI-powered financial advisor that supports both text and voice interactions. Built with Flask, React, and Hugging Face's language models.
 
-## Available Scripts
+## Features
 
-In the project directory, you can run:
+- 💬 Text-based financial advice
+- 🎤 Voice input support
+- 🔊 Text-to-speech responses
+- 📝 Structured financial guidance
+- 🎯 Real-time voice interaction
 
-### `npm start`
+## Prerequisites
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+- Python 3.8+
+- Node.js 14+
+- Hugging Face API token
+- Windows OS (for some audio features)
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+## Setup
 
-### `npm test`
+1. Clone the repository:
+```bash
+git clone <repository-url>
+cd FinGuide
+```
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+2. Set up the backend:
+```bash
+# Create and activate virtual environment
+python -m venv venv
+.\venv\Scripts\activate
 
-### `npm run build`
+# Install dependencies
+pip install -r requirements.txt
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+# Create .env file and add your Hugging Face token
+echo HF_TOKEN=your_token_here > .env
+```
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+3. Set up the frontend:
+```bash
+cd frontend
+npm install
+```
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+## Running the Application
 
-### `npm run eject`
+1. Start the Flask backend:
+```bash
+# From the root directory
+.\venv\Scripts\activate
+python app.py
+```
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+2. Start the React frontend:
+```bash
+# From the frontend directory
+npm start
+```
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+3. Open `http://localhost:3000` in your browser
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+## API Endpoints
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+- `POST /generate` - Text-based financial advice
+- `POST /speech` - Voice input processing
+- `GET /listen` - Real-time voice interaction
+- `GET /audio/<filename>` - Audio file serving
 
-## Learn More
+## Environment Variables
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+- `HF_TOKEN` - Hugging Face API token (required)
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+## Project Structure
 
-### Code Splitting
+```
+FinGuide/
+├── app.py              # Flask backend
+├── requirements.txt    # Python dependencies
+├── .env               # Environment variables
+└── frontend/
+    ├── src/
+    │   ├── components/
+    │   │   ├── FinancialAdvisor.jsx
+    │   │   ├── VoiceRecorder.jsx
+    │   │   └── AudioPlayer.jsx
+    │   ├── styles/
+    │   │   └── advisorStyles.js
+    │   └── utils/
+    │       └── audioUtils.js
+    └── package.json
+```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+## Troubleshooting
 
-### Analyzing the Bundle Size
+- If you encounter audio device issues, ensure your microphone is properly connected and permissions are granted
+- For PyAudio installation issues on Windows, use:
+  ```bash
+  pip install pipwin
+  pipwin install pyaudio
+  ```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+## License
 
-### Making a Progressive Web App
+MIT
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+## Contributing
 
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
