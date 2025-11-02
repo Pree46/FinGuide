@@ -100,11 +100,3 @@ FinGuide/
   pip install pipwin
   pipwin install pyaudio
   ```
-
-## License
-
-MIT
-
-## Contributing
-
-Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
