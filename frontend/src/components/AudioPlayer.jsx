@@ -1,57 +1,69 @@
-import React, { useRef, useState, useEffect } from 'react';
-import { styles } from '../styles/advisorStyles';
+import React, { useRef, useState, useEffect } from "react";
+import { styles } from "../styles/advisorStyles";
 
 const AudioPlayer = ({ audioUrl }) => {
-    const [isPlaying, setIsPlaying] = useState(false);
-    const audioRef = useRef(null);
+  const audioRef = useRef(null);
+  const [isPlaying, setIsPlaying] = useState(false);
 
-    // Stop playing when audioUrl changes
-    useEffect(() => {
-        if (audioRef.current) {
-            audioRef.current.pause();
-            setIsPlaying(false);
-        }
-    }, [audioUrl]);
+  // ✅ Stop and reset when URL changes — no autoplay
+  useEffect(() => {
+    if (!audioRef.current) return;
+    const audio = audioRef.current;
 
-    const handlePlayPause = () => {
-        if (audioRef.current) {
-            if (isPlaying) {
-                audioRef.current.pause();
-            } else {
-                audioRef.current.play().catch(err => {
-                    console.error("Playback failed:", err);
-                });
-            }
-            setIsPlaying(!isPlaying);
-        }
-    };
+    // Stop any ongoing playback immediately
+    audio.pause();
+    audio.currentTime = 0;
+    setIsPlaying(false);
 
-    const handleAudioEnded = () => {
+    // Explicitly block autoplay by resetting src manually
+    audio.src = "";
+    setTimeout(() => {
+      audio.src = audioUrl;
+    }, 50); // small delay ensures browser doesn’t auto-start
+  }, [audioUrl]);
+
+  const handlePlayPause = async () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    try {
+      if (isPlaying) {
+        audio.pause();
         setIsPlaying(false);
-    };
+      } else {
+        // Pause any other active audio tags
+        document.querySelectorAll("audio").forEach(a => {
+          if (a !== audio) a.pause();
+        });
 
-    return (
-        <div style={styles.audioPlayer}>
-            <audio
-                ref={audioRef}
-                src={audioUrl}
-                onEnded={handleAudioEnded}
-                onPlay={() => setIsPlaying(true)}
-                onPause={() => setIsPlaying(false)}
-                preload="none"  // Prevent auto-loading
-            />
-            <button
-                onClick={handlePlayPause}
-                style={{
-                    ...styles.button,
-                    backgroundColor: isPlaying ? '#dc3545' : '#2e5aac',
-                    marginTop: '15px'
-                }}
-            >
-                {isPlaying ? '⏸ Pause' : '▶ Play'} Response
-            </button>
-        </div>
-    );
+        await audio.play();
+        setIsPlaying(true);
+      }
+    } catch (err) {
+      console.error("Audio play failed:", err);
+    }
+  };
+
+  return (
+    <div style={styles.audioPlayer}>
+      <audio
+        ref={audioRef}
+        preload="none"
+        onEnded={() => setIsPlaying(false)}
+        controls={false}
+      />
+      <button
+        onClick={handlePlayPause}
+        style={{
+          ...styles.button,
+          backgroundColor: isPlaying ? "#dc3545" : "#2e5aac",
+          marginTop: "15px",
+        }}
+      >
+        {isPlaying ? "⏸ Pause" : "▶ Play"} Response
+      </button>
+    </div>
+  );
 };
 
 export default AudioPlayer;

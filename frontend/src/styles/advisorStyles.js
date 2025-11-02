@@ -1,65 +1,109 @@
 export const styles = {
-    container: {
-        maxWidth: "700px",
-        margin: "40px auto",
-        background: "#fff",
-        padding: "25px",
-        borderRadius: "16px",
-        boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
-        fontFamily: "Segoe UI, sans-serif",
-    },
-    title: {
-        textAlign: "center",
-        color: "#2e5aac",
-    },
-    textarea: {
-        width: "100%",
-        height: "120px",
-        borderRadius: "10px",
-        border: "1px solid #ccc",
-        padding: "10px",
-        resize: "none",
-        fontSize: "16px",
-    },
-    buttonRow: {
-        display: "flex",
-        justifyContent: "center",
-        gap: "10px",
-        marginTop: "10px",
-    },
-    button: {
-        backgroundColor: "#2e5aac",
-        color: "#fff",
-        border: "none",
-        padding: "10px 20px",
-        borderRadius: "8px",
-        cursor: "pointer",
-        fontSize: "16px",
-    },
-    loading: {
-        textAlign: "center",
-        marginTop: "15px",
-        color: "#888",
-    },
-    responseTitle: {
-        marginTop: "20px",
-        color: "#333",
-    },
-    responseBox: {
-        background: "#f4f5f7",
-        padding: "15px",
-        borderRadius: "8px",
-        whiteSpace: "pre-wrap",
-        minHeight: "100px",
-    },
-    audioPlayer: {
-        marginTop: '15px',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        gap: '10px',
-        padding: '10px',
-        borderRadius: '8px',
-        backgroundColor: '#f5f5f5'
-    }
+  container: {
+    display: "flex",
+    flexDirection: "column",
+    height: "100vh",
+    backgroundColor: "#e0f2fe",
+    fontFamily: "'Inter', sans-serif",
+  },
+
+  header: {
+    display: "flex",
+    alignItems: "center",
+    backgroundColor: "#1e3a8a",
+    color: "#fff",
+    padding: "15px 20px",
+    boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
+  },
+
+  headerLeft: {
+    display: "flex",
+    alignItems: "center",
+    gap: "12px",
+  },
+
+  logo: {
+    width: "42px",
+    height: "42px",
+    borderRadius: "8px",
+    objectFit: "contain",
+    backgroundColor: "#fff",
+    padding: "4px",
+  },
+
+  headerTitle: { fontSize: "1.5rem", fontWeight: "700", margin: 0 },
+  headerSubtitle: { fontSize: "0.9rem", opacity: 0.85, marginTop: "2px" },
+
+  chatContainer: {
+    flex: 1,
+    overflowY: "auto",
+    padding: "20px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "12px",
+  },
+
+  messageBubble: {
+    maxWidth: "75%",
+    padding: "12px 16px",
+    borderRadius: "20px",
+    fontSize: "0.95rem",
+    lineHeight: 1.5,
+    wordWrap: "break-word",
+    boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+  },
+
+  userBubble: {
+    alignSelf: "flex-end",
+    backgroundColor: "#2563eb",
+    color: "#fff",
+    borderBottomRightRadius: "4px",
+  },
+
+  aiBubble: {
+    alignSelf: "flex-start",
+    backgroundColor: "#dbeafe",
+    color: "#1e3a8a",
+    borderBottomLeftRadius: "4px",
+  },
+
+  inputBar: {
+    display: "flex",
+    alignItems: "center",
+    padding: "10px 15px",
+    backgroundColor: "#f1f5f9",
+    borderTop: "1px solid #cbd5e1",
+    gap: "8px",
+  },
+
+  textInput: {
+    flex: 1,
+    border: "none",
+    borderRadius: "20px",
+    padding: "10px 15px",
+    fontSize: "1rem",
+    resize: "none",
+    backgroundColor: "#fff",
+    boxShadow: "inset 0 1px 3px rgba(0,0,0,0.1)",
+    outline: "none",
+  },
+
+  sendButton: {
+    backgroundColor: "#2563eb",
+    color: "#fff",
+    border: "none",
+    borderRadius: "50%",
+    width: "42px",
+    height: "42px",
+    fontSize: "1.2rem",
+    cursor: "pointer",
+    boxShadow: "0 2px 6px rgba(37,99,235,0.4)",
+    transition: "0.3s",
+  },
+
+  loading: {
+    alignSelf: "center",
+    color: "#1e3a8a",
+    fontWeight: "500",
+  },
 };

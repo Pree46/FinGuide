@@ -9,7 +9,8 @@ const VoiceRecorder = ({
     setResponse, 
     setAudioUrl, 
     setTranscribedText, 
-    setIsLoading 
+    setIsLoading,
+    setRefreshKey
 }) => {
     const [mediaRecorder, setMediaRecorder] = useState(null); // Fix: Added mediaRecorder state
 
@@ -49,6 +50,8 @@ const VoiceRecorder = ({
                 const audioBuffer = await audioContext.decodeAudioData(e.target.result);
                 const wavBlob = await exportWAV(audioBuffer, audioContext.sampleRate);
                 await sendAudioToServer(wavBlob);
+                setRefreshKey(prev => prev + 1);
+
             } catch (err) {
                 console.error("Audio processing error:", err);
                 setResponse("Error: Failed to process audio");
@@ -60,32 +63,33 @@ const VoiceRecorder = ({
     };
 
     const sendAudioToServer = async (wavBlob) => {
-        const formData = new FormData();
-        formData.append("audio", wavBlob, "recording.wav");
+    const formData = new FormData();
+    formData.append("audio", wavBlob, "recording.wav");
 
-        setIsLoading(true);
-        setResponse("");
-        setAudioUrl("");
-        setTranscribedText("");
+    setIsLoading(true);
+    setResponse("");
+    setAudioUrl("");
+    setTranscribedText("");
 
-        try {
-            const res = await axios.post("http://127.0.0.1:5000/speech", formData, {
-                headers: { "Content-Type": "multipart/form-data" },
-            });
+    try {
+        const res = await axios.post("http://127.0.0.1:5000/speech", formData, {
+            headers: { "Content-Type": "multipart/form-data" },
+        });
 
-            setTranscribedText(res.data.transcribed_text || "No transcription.");
-            setResponse(res.data.response_text || "No response.");
-            if (res.data.audio_response_url) {
-                setAudioUrl(res.data.audio_response_url);
-                const audio = new Audio(res.data.audio_response_url);
-                audio.play();
-            }
-        } catch (err) {
-            setResponse("Error: " + (err.response?.data?.error || err.message));
-        } finally {
-            setIsLoading(false);
+        setTranscribedText(res.data.transcribed_text || "No transcription.");
+        setResponse(res.data.response_text || "No response.");
+
+        if (res.data.audio_response_url) {
+            // ✅ Don't auto-play here
+            setAudioUrl(res.data.audio_response_url);
         }
-    };
+    } catch (err) {
+        setResponse("Error: " + (err.response?.data?.error || err.message));
+    } finally {
+        setIsLoading(false);
+    }
+};
+
 
     return (
         <button 

@@ -3,7 +3,6 @@ import uuid
 import tempfile
 import shutil
 import time
-import threading
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify, send_file, url_for, Response
 from flask_cors import CORS
@@ -11,6 +10,9 @@ from openai import OpenAI
 import speech_recognition as sr
 from gtts import gTTS
 import soundfile as sf
+import chromadb
+from chromadb.config import Settings
+from sentence_transformers import SentenceTransformer
 
 # ---------------- Configuration ----------------
 load_dotenv()
@@ -29,7 +31,12 @@ STATIC_AUDIO_DIR = os.path.join(tempfile.gettempdir(), "finguide_audio")
 os.makedirs(STATIC_AUDIO_DIR, exist_ok=True)
 # ------------------------------------------------
 
+# ChromaDB initialization
+chroma_client = chromadb.Client(Settings())
+collection = chroma_client.get_or_create_collection(name="fin_guide_history")
+embedder = SentenceTransformer("all-MiniLM-L6-v2")
 
+# ------------------------------------------------
 def convert_to_wav(src_path: str, dst_path: str):
     try:
         data, samplerate = sf.read(src_path)
@@ -40,6 +47,19 @@ def convert_to_wav(src_path: str, dst_path: str):
         else:
             raise RuntimeError(f"Unable to convert audio format: {e}")
 
+def retrieve_from_chroma(query_text: str, k: int = 3) -> str:
+    """Retrieve top-k relevant entries from ChromaDB."""
+    try:
+        query_embedding = embedder.encode([query_text])[0]
+        results = collection.query(
+            query_embeddings=[query_embedding.tolist()],
+            n_results=k,
+        )
+        if results and results.get("documents") and results["documents"][0]:
+            return "\n\n".join(results["documents"][0])
+    except Exception as e:
+        print(f"[Chroma Retrieval Error] {e}")
+    return ""
 
 @app.route("/audio/<filename>", methods=["GET"])
 def serve_audio(filename):
@@ -48,42 +68,67 @@ def serve_audio(filename):
         return "File not found", 404
     return send_file(safe_path, mimetype="audio/mpeg")
 
-
+# ------------------------------------------------
 @app.route("/generate", methods=["POST"])
 def generate():
+    """Text prompt endpoint that uses ChromaDB as context and stores output."""
     try:
         data = request.get_json()
         prompt = data.get("prompt", "")
         if not prompt:
             return jsonify({"error": "No prompt provided"}), 400
 
+        # --- Retrieve from ChromaDB ---
+        context = retrieve_from_chroma(prompt, k=3)
+
+        # --- LLM Completion ---
+        system_prompt = (
+            "You are a professional financial advisor. "
+            "Use the following past context if relevant:\n\n"
+            f"{context}\n\n"
+            "Provide structured, detailed answers with headings and examples."
+        )
         completion = client.chat.completions.create(
             model=MODEL_ID,
             messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a professional financial advisor. Provide structured, detailed "
-                        "answers with headings, numbered steps, and examples. Avoid repeating "
-                        "'As a financial advisor'."
-                    ),
-                },
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt},
             ],
             max_tokens=1200,
             temperature=0.75,
             top_p=0.9,
         )
+        response_text = completion.choices[0].message.content.strip()
 
-        response_text = completion.choices[0].message.content
+        # --- Store to Chroma DB ---
+        try:
+            combined_text = prompt + " " + response_text
+            doc_embedding = embedder.encode([combined_text])[0]
+
+            collection.add(
+                ids=[str(uuid.uuid4())],
+                documents=[combined_text],
+                embeddings=[doc_embedding.tolist()],
+                metadatas=[{
+                    "input": prompt,
+                    "response": response_text,
+                    "timestamp": time.time(),
+                    "source": "text"
+                }]
+            )
+        except Exception as chroma_err:
+            print(f"[ChromaDB Store Error] {chroma_err}")
+
         return jsonify({"response": response_text})
 
     except Exception as e:
+        print(f"[Generate Error] {e}")
         return jsonify({"error": str(e)}), 500
 
-
+# ------------------------------------------------
 @app.route("/speech", methods=["POST"])
 def speech_to_finance():
+    """ASR input: transcribe → query Chroma for context → respond (no Chroma write)."""
     temp_files = []
     try:
         if "audio" not in request.files:
@@ -102,21 +147,27 @@ def speech_to_finance():
         convert_to_wav(src_tmp, wav_tmp)
         temp_files.append(wav_tmp)
 
+        # --- Speech to Text ---
         recognizer = sr.Recognizer()
         with sr.AudioFile(wav_tmp) as source:
             audio_data = recognizer.record(source)
             prompt_text = recognizer.recognize_google(audio_data)
 
+        # --- Retrieve from ChromaDB ---
+        context = retrieve_from_chroma(prompt_text, k=3)
+
+        # --- Generate response using LLM ---
+        system_prompt = (
+            "You are a financial advisor. "
+            "Use the following context from past interactions if relevant:\n\n"
+            f"{context}\n\n"
+            "Be concise and practical in your advice."
+        )
+
         completion = client.chat.completions.create(
             model=MODEL_ID,
             messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a professional financial advisor. Provide detailed, step-by-step "
-                        "guidance with examples. Avoid repeating 'As a financial advisor'."
-                    ),
-                },
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt_text},
             ],
             max_tokens=1200,
@@ -125,25 +176,46 @@ def speech_to_finance():
         )
         response_text = completion.choices[0].message.content
 
+        # --- Convert response to speech ---
         audio_filename = f"resp-{uuid.uuid4().hex}.mp3"
         audio_path = os.path.join(STATIC_AUDIO_DIR, audio_filename)
         tts = gTTS(text=response_text, lang="en")
         tts.save(audio_path)
         audio_url = url_for("serve_audio", filename=audio_filename, _external=True)
 
-        return jsonify(
-            {
-                "transcribed_text": prompt_text,
-                "response_text": response_text,
-                "audio_response_url": audio_url,
-            }
-        )
+        try:
+            combined_text = prompt_text + " " + response_text
+            doc_embedding = embedder.encode([combined_text])[0]
+
+            collection.add(
+                ids=[str(uuid.uuid4())],
+                documents=[combined_text],
+                embeddings=[doc_embedding.tolist()],
+                metadatas=[{
+                    "input": prompt_text,
+                    "response": response_text,
+                    "timestamp": time.time(),
+                    "source": "speech",
+                    "audio_url": audio_url
+                }]
+            )
+        except Exception as chroma_err:
+            print(f"[ChromaDB Store Error] {chroma_err}")
+
+
+        return jsonify({
+            "transcribed_text": prompt_text,
+            "response_text": response_text,
+            "audio_response_url": audio_url,
+            "autoplay": False
+        })
 
     except sr.UnknownValueError:
         return jsonify({"error": "Speech recognition could not understand audio"}), 400
     except sr.RequestError as re:
         return jsonify({"error": f"ASR request failed: {re}"}), 500
     except Exception as e:
+        print(f"[Speech Error] {e}")
         return jsonify({"error": str(e)}), 500
     finally:
         for f in temp_files:
@@ -153,66 +225,33 @@ def speech_to_finance():
                 except Exception:
                     pass
 
+@app.route("/history", methods=["GET"])
+def get_history():
+    """Return stored conversation history from ChromaDB."""
+    try:
+        # ✅ Correct include options — no "ids"
+        results = collection.get(include=["metadatas", "documents"])
+        
+        history = []
+        for i in range(len(results["metadatas"])):
+            meta = results["metadatas"][i]
+            doc = results["documents"][i]
 
-# ---------------- NEW REAL-TIME LISTEN ROUTE ----------------
-@app.route("/listen", methods=["GET"])
-def listen():
-    """
-    Real-time mic listening with speech recognition, LLM response, and speech output.
-    Streams events to the frontend as SSE messages.
-    """
+            history.append({
+                "input": meta.get("input", "N/A"),
+                "response": meta.get("response", "N/A"),
+                "timestamp": meta.get("timestamp", 0),
+                "audio_url": meta.get("audio_url", None)
+            })
 
-    def audio_stream():
-        recognizer = sr.Recognizer()
-        mic = sr.Microphone()
+        # Sort newest first
+        history.sort(key=lambda x: x["timestamp"], reverse=True)
+        return jsonify(history)
 
-        with mic as source:
-            recognizer.adjust_for_ambient_noise(source, duration=0.5)
-        yield "data: Ready to listen 🎤\n\n"
+    except Exception as e:
+        print(f"[History Error] {e}")
+        return jsonify({"error": str(e)}), 500
 
-        def callback(recognizer, audio):
-            try:
-                text = recognizer.recognize_google(audio)
-                if not text:
-                    return
-
-                yield f"data: Heard: {text}\n\n"
-
-                completion = client.chat.completions.create(
-                    model=MODEL_ID,
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": "You are a financial advisor. Keep responses practical and concise.",
-                        },
-                        {"role": "user", "content": text},
-                    ],
-                    max_tokens=250,
-                    temperature=0.7,
-                )
-                response = completion.choices[0].message.content
-
-                audio_filename = f"resp-{uuid.uuid4().hex}.mp3"
-                audio_path = os.path.join(STATIC_AUDIO_DIR, audio_filename)
-                gTTS(text=response, lang="en").save(audio_path)
-                os.system(f'start {audio_path}')  # Plays response on Windows
-
-                yield f"data: AI: {response}\n\n"
-
-            except Exception as e:
-                yield f"data: Error: {str(e)}\n\n"
-
-        # Start background listening
-        stop_listening = recognizer.listen_in_background(mic, callback)
-
-        try:
-            while True:
-                yield "data: Listening...\n\n"
-                time.sleep(2)
-        finally:
-            stop_listening(wait_for_stop=False)
-
-    return Response(audio_stream(), mimetype="text/event-stream")
 
 
 # -------------------------------------------------------------
