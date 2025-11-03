@@ -69,19 +69,73 @@ def serve_audio(filename):
     return send_file(safe_path, mimetype="audio/mpeg")
 
 # ------------------------------------------------
+# -------------------------------------------------------------
+# Chat session tracking (simple in-memory store)
+chat_store = []
+
+def create_chat_session(title=None):
+    chat_id = str(uuid.uuid4())
+    chat = {
+        "id": chat_id,
+        "title": title or f"Session {len(chat_store)+1}",
+        "timestamp": time.time(),
+        "messages": []
+    }
+    chat_store.append(chat)
+    return chat
+
+def find_chat(chat_id):
+    return next((c for c in chat_store if c["id"] == chat_id), None)
+
+import json
+CHAT_FILE = "chats.json"
+
+# ---------------- Chat Session Persistence ----------------
+def load_chats():
+    if os.path.exists(CHAT_FILE):
+        with open(CHAT_FILE, "r", encoding="utf-8") as f:
+            try:
+                return json.load(f)
+            except json.JSONDecodeError:
+                return []
+    return []
+
+def save_chats():
+    with open(CHAT_FILE, "w", encoding="utf-8") as f:
+        json.dump(chat_store, f, indent=2)
+
+chat_store = load_chats()
+
+def create_chat_session(title=None):
+    chat_id = str(uuid.uuid4())
+    chat = {
+        "id": chat_id,
+        "title": title or f"Session {len(chat_store)+1}",
+        "timestamp": time.time(),
+        "messages": []
+    }
+    chat_store.append(chat)
+    save_chats()  # ✅ persist
+    return chat
+
+def find_chat(chat_id):
+    return next((c for c in chat_store if c["id"] == chat_id), None)
+
+# ---------------- Modified Generate ----------------
 @app.route("/generate", methods=["POST"])
 def generate():
-    """Text prompt endpoint that uses ChromaDB as context and stores output."""
     try:
         data = request.get_json()
         prompt = data.get("prompt", "")
+        chat_id = data.get("chat_id")
+
         if not prompt:
             return jsonify({"error": "No prompt provided"}), 400
 
-        # --- Retrieve from ChromaDB ---
+        # Retrieve context
         context = retrieve_from_chroma(prompt, k=3)
 
-        # --- LLM Completion ---
+        # Generate response
         system_prompt = (
             "You are a professional financial advisor. "
             "Use the following past context if relevant:\n\n"
@@ -100,30 +154,91 @@ def generate():
         )
         response_text = completion.choices[0].message.content.strip()
 
-        # --- Store to Chroma DB ---
-        try:
-            combined_text = prompt + " " + response_text
-            doc_embedding = embedder.encode([combined_text])[0]
+        # Store in Chroma
+        combined_text = prompt + " " + response_text
+        doc_embedding = embedder.encode([combined_text])[0]
+        collection.add(
+            ids=[str(uuid.uuid4())],
+            documents=[combined_text],
+            embeddings=[doc_embedding.tolist()],
+            metadatas=[{
+                "input": prompt,
+                "response": response_text,
+                "timestamp": time.time(),
+                "source": "text"
+            }]
+        )
 
-            collection.add(
-                ids=[str(uuid.uuid4())],
-                documents=[combined_text],
-                embeddings=[doc_embedding.tolist()],
-                metadatas=[{
-                    "input": prompt,
-                    "response": response_text,
-                    "timestamp": time.time(),
-                    "source": "text"
-                }]
-            )
-        except Exception as chroma_err:
-            print(f"[ChromaDB Store Error] {chroma_err}")
+        # ✅ Create or update chat
+        chat = find_chat(chat_id)
+        if not chat:
+            chat = create_chat_session(title=prompt[:40])  # title from first user prompt
+        chat["messages"].append({
+            "input": prompt,
+            "response": response_text,
+            "timestamp": time.time(),
+        })
+        chat["timestamp"] = time.time()
+        save_chats()
 
-        return jsonify({"response": response_text})
+        return jsonify({"response": response_text, "chat_id": chat["id"]})
 
     except Exception as e:
         print(f"[Generate Error] {e}")
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/chats", methods=["GET"])
+def get_chats():
+    """Return all chats with title + timestamp."""
+    return jsonify(sorted(chat_store, key=lambda c: c["timestamp"], reverse=True))
+
+
+@app.route("/history/<chat_id>", methods=["GET"])
+def get_chat(chat_id):
+    """Return messages for a given chat_id."""
+    chat = find_chat(chat_id)
+    if not chat:
+        return jsonify({"messages": []})
+    return jsonify({"messages": chat["messages"]})
+# ---------------- Add Sidebar Management ----------------
+@app.route("/chat/new", methods=["POST"])
+def new_chat():
+    data = request.get_json()
+    title = data.get("title", None)
+    chat = create_chat_session(title)
+    return jsonify(chat), 201
+
+
+@app.route("/chat/<chat_id>/rename", methods=["PUT"])
+def rename_chat(chat_id):
+    data = request.get_json()
+    new_title = data.get("title", "")
+    chat = find_chat(chat_id)
+    if not chat:
+        return jsonify({"error": "Chat not found"}), 404
+    chat["title"] = new_title or chat["title"]
+    chat["timestamp"] = time.time()
+    save_chats()
+    return jsonify(chat)
+
+
+@app.route("/chat/<chat_id>/delete", methods=["DELETE"])
+def delete_chat(chat_id):
+    global chat_store
+    chat_store = [c for c in chat_store if c["id"] != chat_id]
+    save_chats()
+    return jsonify({"success": True})
+
+
+@app.route("/chat/<chat_id>/pin", methods=["PUT"])
+def pin_chat(chat_id):
+    chat = find_chat(chat_id)
+    if not chat:
+        return jsonify({"error": "Chat not found"}), 404
+    chat["pinned"] = not chat.get("pinned", False)
+    save_chats()
+    return jsonify({"pinned": chat["pinned"]})
 
 # ------------------------------------------------
 @app.route("/speech", methods=["POST"])
@@ -251,7 +366,6 @@ def get_history():
     except Exception as e:
         print(f"[History Error] {e}")
         return jsonify({"error": str(e)}), 500
-
 
 
 # -------------------------------------------------------------
