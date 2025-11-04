@@ -16,16 +16,18 @@ const VoiceRecorder = ({
 
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          sampleRate: 44100,
+        },
+      });
 
-      // Try WAV first, fallback to WebM if unsupported
-      let options = { mimeType: "audio/wav" };
-      if (!MediaRecorder.isTypeSupported("audio/wav")) {
-        options = { mimeType: "audio/webm" };
-        console.warn("WAV not supported, using WebM fallback.");
-      }
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: "audio/webm;codecs=opus",
+        bitsPerSecond: 128000,
+      });
 
-      const mediaRecorder = new MediaRecorder(stream, options);
       mediaRecorderRef.current = mediaRecorder;
       setAudioChunks([]);
 
@@ -36,25 +38,20 @@ const VoiceRecorder = ({
       };
 
       mediaRecorder.onstop = async () => {
-        const blobType = mediaRecorder.mimeType === "audio/wav" ? "audio/wav" : "audio/webm";
-        const blob = new Blob(audioChunks, { type: blobType });
-
-        // If browser couldn’t produce a valid WAV, convert to WAV in-memory
-        let finalBlob = blob;
-        if (blobType === "audio/webm") {
-          try {
-            finalBlob = await convertToWav(blob);
-          } catch (err) {
-            console.warn("Conversion fallback failed, sending webm instead:", err);
-          }
+        const blob = new Blob(audioChunks, { type: "audio/webm" });
+        try {
+          const wavBlob = await convertToWav(blob);
+          await uploadAudio(wavBlob);
+        } catch (err) {
+          console.error("Audio conversion failed:", err);
+          setResponse("Error converting audio format");
         }
-
-        await uploadAudio(finalBlob);
       };
 
-      mediaRecorder.start();
+      mediaRecorder.start(1000); // Collect data in 1-second chunks
       setIsRecording(true);
     } catch (error) {
+      console.error("Recording failed:", error);
       alert("Microphone access denied or recording failed.");
     }
   };
@@ -66,64 +63,50 @@ const VoiceRecorder = ({
     }
   };
 
-  // ✅ Converts webm to wav safely (only used if necessary)
-  const convertToWav = (webmBlob) =>
-    new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      const audioContext = new AudioContext();
+  const convertToWav = async (webmBlob) => {
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const arrayBuffer = await webmBlob.arrayBuffer();
+    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
-      reader.onload = async () => {
-        try {
-          const audioBuffer = await audioContext.decodeAudioData(reader.result);
-          const wavBlob = audioBufferToWavBlob(audioBuffer);
-          resolve(wavBlob);
-        } catch (e) {
-          reject(e);
-        }
-      };
-      reader.readAsArrayBuffer(webmBlob);
-    });
+    const numChannels = 1; // Force mono
+    const sampleRate = 44100; // Standard sample rate
+    const bytesPerSample = 2;
+    const length = audioBuffer.length * numChannels * bytesPerSample + 44;
 
-  const audioBufferToWavBlob = (audioBuffer) => {
-    const numOfChan = audioBuffer.numberOfChannels;
-    const sampleRate = audioBuffer.sampleRate;
-    const length = audioBuffer.length * numOfChan * 2 + 44;
     const buffer = new ArrayBuffer(length);
     const view = new DataView(buffer);
-    const channels = [];
-    for (let i = 0; i < numOfChan; i++) channels.push(audioBuffer.getChannelData(i));
 
-    const writeString = (offset, str) => {
-      for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+    // Write WAV header
+    const writeString = (offset, string) => {
+      for (let i = 0; i < string.length; i++) {
+        view.setUint8(offset + i, string.charCodeAt(i));
+      }
     };
 
-    let offset = 0;
-    writeString(offset, "RIFF"); offset += 4;
-    view.setUint32(offset, 36 + audioBuffer.length * numOfChan * 2, true); offset += 4;
-    writeString(offset, "WAVE"); offset += 4;
-    writeString(offset, "fmt "); offset += 4;
-    view.setUint32(offset, 16, true); offset += 4;
-    view.setUint16(offset, 1, true); offset += 2;
-    view.setUint16(offset, numOfChan, true); offset += 2;
-    view.setUint32(offset, sampleRate, true); offset += 4;
-    view.setUint32(offset, sampleRate * numOfChan * 2, true); offset += 4;
-    view.setUint16(offset, numOfChan * 2, true); offset += 2;
-    view.setUint16(offset, 16, true); offset += 2;
-    writeString(offset, "data"); offset += 4;
-    view.setUint32(offset, audioBuffer.length * numOfChan * 2, true); offset += 4;
+    writeString(0, "RIFF"); // ChunkID
+    view.setUint32(4, length - 8, true); // ChunkSize
+    writeString(8, "WAVE"); // Format
+    writeString(12, "fmt "); // Subchunk1ID
+    view.setUint32(16, 16, true); // Subchunk1Size
+    view.setUint16(20, 1, true); // AudioFormat (PCM)
+    view.setUint16(22, numChannels, true); // NumChannels
+    view.setUint32(24, sampleRate, true); // SampleRate
+    view.setUint32(28, sampleRate * numChannels * bytesPerSample, true); // ByteRate
+    view.setUint16(32, numChannels * bytesPerSample, true); // BlockAlign
+    view.setUint16(34, bytesPerSample * 8, true); // BitsPerSample
+    writeString(36, "data"); // Subchunk2ID
+    view.setUint32(40, length - 44, true); // Subchunk2Size
 
-    let interleaved = new Float32Array(audioBuffer.length * numOfChan);
-    for (let i = 0; i < audioBuffer.length; i++)
-      for (let ch = 0; ch < numOfChan; ch++)
-        interleaved[i * numOfChan + ch] = channels[ch][i];
-
-    let index = 44;
-    for (let i = 0; i < interleaved.length; i++, index += 2) {
-      const s = Math.max(-1, Math.min(1, interleaved[i]));
-      view.setInt16(index, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    // Write audio data
+    const channelData = audioBuffer.getChannelData(0);
+    let offset = 44;
+    for (let i = 0; i < channelData.length; i++) {
+      const sample = Math.max(-1, Math.min(1, channelData[i]));
+      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+      offset += 2;
     }
 
-    return new Blob([view], { type: "audio/wav" });
+    return new Blob([buffer], { type: "audio/wav" });
   };
 
   // ✅ Upload to backend
@@ -137,7 +120,10 @@ const VoiceRecorder = ({
 
     try {
       const res = await axios.post("http://127.0.0.1:5000/speech", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+        maxBodyLength: Infinity,
       });
 
       if (res.data.transcribed_text) setText(res.data.transcribed_text);
@@ -145,7 +131,7 @@ const VoiceRecorder = ({
       if (res.data.audio_response_url) setAudioUrl(res.data.audio_response_url);
     } catch (err) {
       console.error("Speech upload failed:", err);
-      setResponse("Speech processing error: " + err.message);
+      setResponse("Speech processing error: " + (err.response?.data?.error || err.message));
     } finally {
       setIsLoading(false);
       setRefreshKey((prev) => prev + 1);

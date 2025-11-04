@@ -241,6 +241,21 @@ def pin_chat(chat_id):
     return jsonify({"pinned": chat["pinned"]})
 
 # ------------------------------------------------
+def clean_text_for_tts(text):
+    """Clean markdown and formatting for natural TTS reading"""
+    # Remove markdown symbols but preserve structure
+    text = text.replace('*', '')
+    text = text.replace('#', '')
+    text = text.replace('`', '')
+    text = text.replace('_', ' ')
+    # Add pauses for better speech flow
+    text = text.replace('\n\n', '. ')
+    text = text.replace('\n', '. ')
+    # Clean up extra spaces and periods
+    text = ' '.join(text.split())
+    text = text.replace('..', '.')
+    return text
+
 @app.route("/speech", methods=["POST"])
 def speech_to_finance():
     """ASR input: transcribe → query Chroma for context → respond (no Chroma write)."""
@@ -264,7 +279,12 @@ def speech_to_finance():
 
         # --- Speech to Text ---
         recognizer = sr.Recognizer()
+        recognizer.energy_threshold = 300
+        recognizer.dynamic_energy_threshold = True
+        recognizer.pause_threshold = 0.8
+
         with sr.AudioFile(wav_tmp) as source:
+            recognizer.adjust_for_ambient_noise(source, duration=0.5)
             audio_data = recognizer.record(source)
             prompt_text = recognizer.recognize_google(audio_data)
 
@@ -273,10 +293,11 @@ def speech_to_finance():
 
         # --- Generate response using LLM ---
         system_prompt = (
-            "You are a financial advisor. "
-            "Use the following context from past interactions if relevant:\n\n"
+            "You are a professional financial advisor. "
+            "Use the following context if relevant:\n\n"
             f"{context}\n\n"
-            "Be concise and practical in your advice."
+            "Provide clear, natural responses suitable for speaking. "
+            "Use conversational language and proper sentence structure."
         )
 
         completion = client.chat.completions.create(
@@ -291,54 +312,43 @@ def speech_to_finance():
         )
         response_text = completion.choices[0].message.content
 
-        # --- Convert response to speech ---
+        # Clean text for TTS
+        tts_text = clean_text_for_tts(response_text)
+        
+        # Generate speech with improved settings
+        tts = gTTS(
+            text=tts_text,
+            lang='en',
+            slow=False,
+            lang_check=False  # Faster processing
+        )
+        
         audio_filename = f"resp-{uuid.uuid4().hex}.mp3"
         audio_path = os.path.join(STATIC_AUDIO_DIR, audio_filename)
-        tts = gTTS(text=response_text, lang="en")
         tts.save(audio_path)
         audio_url = url_for("serve_audio", filename=audio_filename, _external=True)
-
-        try:
-            combined_text = prompt_text + " " + response_text
-            doc_embedding = embedder.encode([combined_text])[0]
-
-            collection.add(
-                ids=[str(uuid.uuid4())],
-                documents=[combined_text],
-                embeddings=[doc_embedding.tolist()],
-                metadatas=[{
-                    "input": prompt_text,
-                    "response": response_text,
-                    "timestamp": time.time(),
-                    "source": "speech",
-                    "audio_url": audio_url
-                }]
-            )
-        except Exception as chroma_err:
-            print(f"[ChromaDB Store Error] {chroma_err}")
-
 
         return jsonify({
             "transcribed_text": prompt_text,
             "response_text": response_text,
             "audio_response_url": audio_url,
-            "autoplay": False
+            "success": True
         })
 
     except sr.UnknownValueError:
-        return jsonify({"error": "Speech recognition could not understand audio"}), 400
-    except sr.RequestError as re:
-        return jsonify({"error": f"ASR request failed: {re}"}), 500
+        return jsonify({"error": "Could not understand audio. Please speak clearly."}), 400
+    except sr.RequestError as e:
+        return jsonify({"error": f"Speech recognition service error: {str(e)}"}), 500
     except Exception as e:
         print(f"[Speech Error] {e}")
         return jsonify({"error": str(e)}), 500
     finally:
         for f in temp_files:
-            if os.path.exists(f):
-                try:
+            try:
+                if os.path.exists(f):
                     os.remove(f)
-                except Exception:
-                    pass
+            except Exception:
+                pass
 
 @app.route("/history", methods=["GET"])
 def get_history():
