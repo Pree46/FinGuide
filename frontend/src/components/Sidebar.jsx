@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Icon } from "@iconify/react";
 import { layoutStyles } from "../styles/chatLayout";
+import logo from "../assets/logo.png"; // Add this import
 
 const Sidebar = ({
   chats,
@@ -26,14 +27,13 @@ const Sidebar = ({
     <div style={layoutStyles.sidebar}>
       {/* 🌟 App Logo and Name */}
       <div style={layoutStyles.brandContainer}>
-  <img
-    src="frontend\src\assets\logo.png"
-    alt="FinGuide Logo"
-    style={layoutStyles.brandLogo}
-  />
-  <span style={layoutStyles.brandName}>FinGuide</span>
-</div>
-
+        <img
+          src={logo} // Changed from "./assets/logo.png" to the imported logo
+          alt="FinGuide Logo"
+          style={layoutStyles.brandLogo}
+        />
+        <span style={layoutStyles.brandName}>FinGuide</span>
+      </div>
 
       {/* ➕ New Chat Button */}
       <button

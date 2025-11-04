@@ -63,7 +63,7 @@ const AudioPlayer = ({ audioUrl }) => {
       display: 'flex',
       alignItems: 'center',
       gap: '10px',
-      marginTop: '15px'
+      marginTop: '0px'  // Changed from 10px to 0px to align with other buttons
     }}>
       <button
         onClick={handlePlayPause}
@@ -79,9 +79,12 @@ const AudioPlayer = ({ audioUrl }) => {
           opacity: isLoading ? 0.7 : 1,
           boxShadow: '0 4px 12px rgba(37, 99, 235, 0.25)',
           transition: 'all 0.25s ease',
-          display: 'flex',
+          height: '42px',  // Added fixed height to match other buttons
+          display: 'inline-flex',  // Changed from 'flex' to 'inline-flex'
           alignItems: 'center',
-          gap: '8px'
+          justifyContent: 'center',
+          marginTop: '0',  // Ensure no margin is pushing it down
+          verticalAlign: 'middle'  // Added to ensure vertical alignment
         }}
       >
         <Icon
@@ -113,7 +116,10 @@ const AudioPlayer = ({ audioUrl }) => {
       {error && (
         <div style={{
           color: '#dc2626',
-          fontSize: '0.875rem'
+          fontSize: '0.875rem',
+          position: 'absolute',  // Changed to position error message below
+          bottom: '-20px',
+          left: '0'
         }}>
           {error}
         </div>
